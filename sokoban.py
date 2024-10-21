@@ -107,4 +107,4 @@ class Node:
         return solution
     
     def set_f(self, heuristic):
-        self.f = self.g = heuristic(self.state)
+        self.f = self.g + heuristic(self.state)
