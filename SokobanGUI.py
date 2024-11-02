@@ -2,7 +2,7 @@ import pygame
 import time
 from typing import List, Dict, Optional
 
-from Astar import Node, SokobanPuzzle, astar_search, bfs_search, h1, h2
+from Astar import Node, SokobanPuzzle, astar_search, bfs_search, h1, h2, h3
 
 class SokobanGUI:
     # Colors
@@ -18,11 +18,6 @@ class SokobanGUI:
     }
     
     def __init__(self, cell_size: int = 60):
-        """Initialize the Sokoban GUI.
-        
-        Args:
-            cell_size: Size of each cell in pixels
-        """
         pygame.init()
         
         self.cell_size = cell_size
@@ -40,19 +35,14 @@ class SokobanGUI:
         self.paused = False
         
     def init_display(self, board: List[List[str]]):
-        """Initialize the display based on board size."""
         self.board_height = len(board) * self.cell_size
         self.board_width = len(board[0]) * self.cell_size
         
         # Set up the display
-        self.screen = pygame.display.set_mode((
-            self.board_width,
-            self.board_height + self.info_height
-        ))
+        self.screen = pygame.display.set_mode((self.board_width, self.board_height + self.info_height))
         pygame.display.set_caption('Sokoban Puzzle Solver')
         
     def draw_cell(self, x: int, y: int, color: tuple):
-        """Draw a colored cell at the specified position."""
         pygame.draw.rect(self.screen, color,
             (x * self.cell_size + self.margin,
              y * self.cell_size + self.margin,
@@ -60,14 +50,12 @@ class SokobanGUI:
              self.cell_size - 2 * self.margin))
     
     def draw_player(self, x: int, y: int):
-        """Draw the player character."""
         center_x = x * self.cell_size + self.cell_size // 2
         center_y = y * self.cell_size + self.cell_size // 2
         radius = self.cell_size // 3
         pygame.draw.circle(self.screen, self.COLORS['BLUE'], (center_x, center_y), radius)
         
     def draw_box(self, x: int, y: int):
-        """Draw a box."""
         pygame.draw.rect(self.screen, self.COLORS['BROWN'],
             (x * self.cell_size + self.margin * 3,
              y * self.cell_size + self.margin * 3,
@@ -75,14 +63,12 @@ class SokobanGUI:
              self.cell_size - 6 * self.margin))
     
     def draw_target(self, x: int, y: int):
-        """Draw a target space."""
         center_x = x * self.cell_size + self.cell_size // 2
         center_y = y * self.cell_size + self.cell_size // 2
         radius = self.cell_size // 4
         pygame.draw.circle(self.screen, self.COLORS['GREEN'], (center_x, center_y), radius, 3)
     
     def draw_board(self, board: List[List[str]]):
-        """Draw the complete board state."""
         self.screen.fill(self.COLORS['BACKGROUND'])
         
         # Draw board elements
@@ -105,7 +91,6 @@ class SokobanGUI:
                     self.draw_player(x, y)
     
     def draw_info_panel(self, solution_info: Dict):
-        """Draw the information panel below the board."""
         info_y = self.board_height
         
         # Background
@@ -130,7 +115,6 @@ class SokobanGUI:
     
     def simulate_solution(self, initial_board: List[List[str]], solution_path: List[SokobanPuzzle],
                          solution_info: Dict, delay: float = 0.5):
-        """Simulate the solution with animation."""
         self.init_display(initial_board)
         self.solution_path = solution_path
         self.current_step = 0
@@ -165,9 +149,8 @@ class SokobanGUI:
         pygame.quit()
 
 def visualize_solution(initial_board: List[List[str]], bfs_solution: Optional[Node] = None,
-                      astar_h1_solution: Optional[Node] = None, astar_h2_solution: Optional[Node] = None):
-    """Visualize the solution using the GUI."""
-    # Create solution info dictionary
+                      astar_h1_solution: Optional[Node] = None, astar_h2_solution: Optional[Node] = None,
+                      astar_h3_solution: Optional[Node] = None):
     solution_info = {}
     if bfs_solution:
         solution_info['BFS'] = {'steps': bfs_solution.g}
@@ -175,12 +158,14 @@ def visualize_solution(initial_board: List[List[str]], bfs_solution: Optional[No
         solution_info['A* (h1)'] = {'steps': astar_h1_solution.g}
     if astar_h2_solution:
         solution_info['A* (h2)'] = {'steps': astar_h2_solution.g}
+    if astar_h3_solution:
+        solution_info['A* (h3)'] = {'steps': astar_h3_solution.g}
     
-    # Use the solution with the fewest steps for visualization
     solutions = [(s, name) for s, name in [
         (bfs_solution, 'BFS'),
         (astar_h1_solution, 'A* (h1)'),
-        (astar_h2_solution, 'A* (h2)')
+        (astar_h2_solution, 'A* (h2)'),
+        (astar_h3_solution, 'A* (h3')
     ] if s is not None]
     
     if not solutions:
@@ -190,7 +175,6 @@ def visualize_solution(initial_board: List[List[str]], bfs_solution: Optional[No
     best_solution, algorithm = min(solutions, key=lambda x: x[0].g)
     print(f"Visualizing {algorithm} solution with {best_solution.g} steps")
     
-    # Create and run GUI
     gui = SokobanGUI()
     gui.simulate_solution(
         initial_board,
@@ -200,7 +184,6 @@ def visualize_solution(initial_board: List[List[str]], bfs_solution: Optional[No
 
 # Example usage
 if __name__ == "__main__":
-    # Example board
     test_board = [
         ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O'],
         ['O', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'O'],
@@ -213,11 +196,10 @@ if __name__ == "__main__":
         ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O']
     ]
     
-    # Solve puzzle
     puzzle = SokobanPuzzle(test_board)
     bfs_solution = bfs_search(puzzle)
     astar_h1_solution = astar_search(puzzle, h1)
     astar_h2_solution = astar_search(puzzle, h2)
+    astar_h3_solution = astar_search(puzzle, h3)
     
-    # Visualize solution
-    visualize_solution(test_board, bfs_solution, astar_h1_solution, astar_h2_solution)
+    visualize_solution(test_board, bfs_solution, astar_h1_solution, astar_h2_solution, astar_h3_solution)

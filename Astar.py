@@ -1,7 +1,8 @@
-from typing import List, Tuple, Set
+from typing import List, Tuple, Set, Optional
 from collections import deque
 import copy
 import heapq
+
 
 class SokobanPuzzle:
     def __init__(self, board: List[List[str]]):
@@ -171,67 +172,109 @@ def h2(state: SokobanPuzzle) -> int:
     
     return 2 * not_on_target + total_distance
 
-def bfs_search(initial_state: SokobanPuzzle) -> Node:
-    """Perform BFS search to find solution."""
-    frontier = deque([Node(initial_state)])
-    explored = set()
+def h3 (state: SokobanPuzzle) -> int:
+    unplaced_boxes = h1(state)
+    total_manhattan_distance = h2(state)
     
-    while frontier:
-        node = frontier.popleft()
-        
-        if node.state.isGoal():
-            return node
-            
-        board_tuple = tuple(tuple(row) for row in node.state.board)
-        if board_tuple in explored:
-            continue
-            
-        explored.add(board_tuple)
-        
-        for action, successor_state in node.state.successorFunction():
-            successor_node = Node(successor_state, node, action)
-            frontier.append(successor_node)
+    # Combine the two heuristics, giving more weight to the unplaced boxes
+    return 3 * unplaced_boxes + total_manhattan_distance
+
+def bfs_search(s: SokobanPuzzle):
+    Open = deque()
+    Closed = set()  # Use a set for faster lookups
+
+    init_node = Node(state=s, parent=None, action=None)
+
+    # Check if the initial state is the goal
+    if s.isGoal():
+        return init_node
     
+    Open.append(init_node)
+    Closed.add(tuple(tuple(row) for row in s.board))  # Convert board to a hashable form
+
+    while Open:
+        current = Open.popleft()
+
+        # Generate successors (valid moves from current state)
+        for action, successor in current.state.successorFunction():
+            child = Node(state=successor, parent=current, action=action)
+
+            # Convert child state to a hashable form for comparison
+            child_state_tuple = tuple(tuple(row) for row in child.state.board)
+
+            # Check if child state is not in Closed
+            if child_state_tuple not in Closed:
+                if child.state.isGoal():
+                    return child
+                Open.append(child)
+                Closed.add(child_state_tuple)  # Mark this state as visited
+
     return None
 
-def astar_search(initial_state: SokobanPuzzle, heuristic) -> Node:
-    """Perform A* search to find solution.
+
+
+
+def get_solution_path(goal_node):
+    actions = []
+    current = goal_node
+    while current.parent is not None:
+        actions.append(current.action)
+        current = current.parent
+    actions.reverse()
+    return actions
+
+import heapq
+from typing import Optional
+
+def astar_search(s: SokobanPuzzle, h) -> Optional[Node]:
+    Open = []  # Priority queue (min-heap)
+    Open_dict = {}  # Dictionary to track the best nodes in Open
+    Closed = set()  # Set for visited states
     
-    Args:
-        initial_state: Initial puzzle state
-        heuristic: Heuristic function to use (h1 or h2)
+    # Initialize the root node
+    init_node = Node(state=s, parent=None, action=None)
+    init_node.g = 0
+    init_node.f = h(init_node.state)
+    
+    # Insert the initial node into Open with its f-value
+    heapq.heappush(Open, (init_node.f, init_node))
+    Open_dict[tuple(tuple(row) for row in s.board)] = init_node  # Track the initial state
+    
+    while Open:
+        # Get the node with the lowest f value
+        _, current = heapq.heappop(Open)
+        current_state_tuple = tuple(tuple(row) for row in current.state.board)
         
-    Returns:
-        Solution node if found, None otherwise
-    """
-    # Create initial node and set its f-value
-    initial_node = Node(initial_state)
-    initial_node.setF(heuristic(initial_state))
-    
-    # Initialize frontier as priority queue and explored set
-    frontier = [initial_node]
-    explored = set()
-    
-    while frontier:
-        # Get node with lowest f-value
-        node = heapq.heappop(frontier)
+        # Check if the current node is the goal
+        if current.state.isGoal():
+            return current
         
-        if node.state.isGoal():
-            return node
+        # Mark this state as explored
+        Closed.add(current_state_tuple)
+        
+        # Remove from Open_dict if it exists
+        if current_state_tuple in Open_dict:
+            del Open_dict[current_state_tuple]  # Remove from Open_dict
             
-        board_tuple = tuple(tuple(row) for row in node.state.board)
-        if board_tuple in explored:
-            continue
+        # Generate successors
+        for action, successor in current.state.successorFunction():
+            child = Node(state=successor, parent=current, action=action)
+            child.g = current.g + 1  # Assume each move has a cost of 1
+            child.f = child.g + h(child.state)
             
-        explored.add(board_tuple)
-        
-        # Generate and add successors to frontier
-        for action, successor_state in node.state.successorFunction():
-            successor_node = Node(successor_state, node, action)
-            successor_node.setF(heuristic(successor_state))
-            heapq.heappush(frontier, successor_node)
-    
+            child_state_tuple = tuple(tuple(row) for row in child.state.board)
+            
+            # If the child state has not been visited
+            if child_state_tuple not in Closed:
+                if child_state_tuple not in Open_dict or child.f < Open_dict[child_state_tuple].f:
+                    # Add to Open
+                    heapq.heappush(Open, (child.f, child))
+                    Open_dict[child_state_tuple] = child  # Add or update the best node in Open
+
     return None
+
+
+
 
 # Example usage
 def solve_puzzle(board: List[List[str]]):
@@ -261,6 +304,14 @@ def solve_puzzle(board: List[List[str]]):
         print("Actions:", astar_h2_solution.getSolution())
     else:
         print("No A* (h2) solution found!")
+    
+    print("\nSolving with A* (h3)...")
+    astar_h3_solution = astar_search(puzzle, h3)
+    if astar_h3_solution:
+        print(f"A* (h3) Solution found in {astar_h3_solution.g} steps")
+        print("Actions:", astar_h3_solution.getSolution())
+    else:
+        print("No A* (h3) solution found!")
 
 initial_board = [
     ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O'],
