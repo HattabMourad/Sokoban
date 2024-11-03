@@ -182,18 +182,20 @@ def h3 (state: SokobanPuzzle) -> int:
 def bfs_search(s: SokobanPuzzle):
     Open = deque()
     Closed = set()  # Use a set for faster lookups
+    node_count = 0  # Initialize the node counter
 
     init_node = Node(state=s, parent=None, action=None)
 
     # Check if the initial state is the goal
     if s.isGoal():
-        return init_node
+        return init_node, node_count
     
     Open.append(init_node)
     Closed.add(tuple(tuple(row) for row in s.board))  # Convert board to a hashable form
 
     while Open:
         current = Open.popleft()
+        node_count += 1  # Increment node counter
 
         # Generate successors (valid moves from current state)
         for action, successor in current.state.successorFunction():
@@ -205,11 +207,11 @@ def bfs_search(s: SokobanPuzzle):
             # Check if child state is not in Closed
             if child_state_tuple not in Closed:
                 if child.state.isGoal():
-                    return child
+                    return child, node_count
                 Open.append(child)
                 Closed.add(child_state_tuple)  # Mark this state as visited
 
-    return None
+    return None, node_count
 
 
 
@@ -226,10 +228,11 @@ def get_solution_path(goal_node):
 import heapq
 from typing import Optional
 
-def astar_search(s: SokobanPuzzle, h) -> Optional[Node]:
+def astar_search(s: SokobanPuzzle, h) -> Tuple[Optional[Node], int]:
     Open = []  # Priority queue (min-heap)
     Open_dict = {}  # Dictionary to track the best nodes in Open
     Closed = set()  # Set for visited states
+    node_count = 0  # Initialize the node counter
     
     # Initialize the root node
     init_node = Node(state=s, parent=None, action=None)
@@ -243,11 +246,12 @@ def astar_search(s: SokobanPuzzle, h) -> Optional[Node]:
     while Open:
         # Get the node with the lowest f value
         _, current = heapq.heappop(Open)
+        node_count += 1  # Increment node counter
         current_state_tuple = tuple(tuple(row) for row in current.state.board)
         
         # Check if the current node is the goal
         if current.state.isGoal():
-            return current
+            return current, node_count
         
         # Mark this state as explored
         Closed.add(current_state_tuple)
@@ -271,47 +275,208 @@ def astar_search(s: SokobanPuzzle, h) -> Optional[Node]:
                     heapq.heappush(Open, (child.f, child))
                     Open_dict[child_state_tuple] = child  # Add or update the best node in Open
 
-    return None
+    return None, node_count
+def is_deadlock(state: SokobanPuzzle) -> bool:
+    """
+    Detects if there are any boxes in deadlock positions (corner or line deadlocks).
+    Returns True if a deadlock is found, False otherwise.
+    """
+    boxes, targets = state.get_boxes_and_targets()
+    deadlock_positions = set()
+
+    def is_corner_deadlock(row: int, col: int) -> bool:
+        """Check if position forms a corner deadlock."""
+        if (row, col) in targets:  # Position is a target, not a deadlock
+            return False
+            
+        # Check adjacent walls in all four corner configurations
+        corners = [
+            ((row-1, col), (row, col-1)),  # top-left
+            ((row-1, col), (row, col+1)),  # top-right
+            ((row+1, col), (row, col-1)),  # bottom-left
+            ((row+1, col), (row, col+1))   # bottom-right
+        ]
+        
+        for wall1, wall2 in corners:
+            if (0 <= wall1[0] < state.rows and 
+                0 <= wall1[1] < state.cols and 
+                0 <= wall2[0] < state.rows and 
+                0 <= wall2[1] < state.cols):
+                if (state.board[wall1[0]][wall1[1]] == 'O' and 
+                    state.board[wall2[0]][wall2[1]] == 'O'):
+                    return True
+        return False
+
+    def find_line_deadlocks() -> Set[Tuple[int, int]]:
+        """Find all line deadlock positions."""
+        line_deadlocks = set()
+        
+        # Find horizontal line deadlocks
+        for row in range(1, state.rows - 1):
+            wall_sequence = False
+            start_col = -1
+            
+            for col in range(state.cols):
+                if state.board[row][col] == 'O':
+                    if not wall_sequence:
+                        wall_sequence = True
+                        start_col = col
+                elif wall_sequence:
+                    # Check if this section forms a line deadlock
+                    end_col = col - 1
+                    if (all(state.board[row-1][c] == 'O' for c in range(start_col+1, end_col+1)) or
+                        all(state.board[row+1][c] == 'O' for c in range(start_col+1, end_col+1))):
+                        for c in range(start_col+1, end_col+1):
+                            if (row, c) not in targets:
+                                line_deadlocks.add((row, c))
+                    wall_sequence = False
+
+        # Find vertical line deadlocks
+        for col in range(1, state.cols - 1):
+            wall_sequence = False
+            start_row = -1
+            
+            for row in range(state.rows):
+                if state.board[row][col] == 'O':
+                    if not wall_sequence:
+                        wall_sequence = True
+                        start_row = row
+                elif wall_sequence:
+                    # Check if this section forms a line deadlock
+                    end_row = row - 1
+                    if (all(state.board[r][col-1] == 'O' for r in range(start_row+1, end_row+1)) or
+                        all(state.board[r][col+1] == 'O' for r in range(start_row+1, end_row+1))):
+                        for r in range(start_row+1, end_row+1):
+                            if (r, col) not in targets:
+                                line_deadlocks.add((r, col))
+                    wall_sequence = False
+                    
+        return line_deadlocks
+
+    # Find all deadlock positions
+    for row in range(state.rows):
+        for col in range(state.cols):
+            if is_corner_deadlock(row, col):
+                deadlock_positions.add((row, col))
+    
+    deadlock_positions.update(find_line_deadlocks())
+    
+    # Check if any box is in a deadlock position
+    for box in boxes:
+        if box in deadlock_positions and state.board[box[0]][box[1]] in ['B', '*']:
+            return True
+            
+    return False
+
+def astar_search_with_deadlock(s: SokobanPuzzle, h) -> Tuple[Optional[Node], int]:
+    """A* search algorithm with deadlock detection."""
+    Open = []  # Priority queue (min-heap)
+    Open_dict = {}  # Dictionary to track nodes in Open
+    Closed = set()  # Set of explored states
+    node_count = 0
+    
+    # Initialize root node
+    init_node = Node(state=s, parent=None, action=None)
+    init_node.setF(h(init_node.state))
+    
+    # Check initial state for deadlock
+    if is_deadlock(init_node.state):
+        return None, 0
+    
+    heapq.heappush(Open, (init_node.f, init_node))
+    Open_dict[tuple(tuple(row) for row in s.board)] = init_node
+    
+    while Open:
+        _, current = heapq.heappop(Open)
+        node_count += 1
+        
+        if current.state.isGoal():
+            return current, node_count
+            
+        current_state_tuple = tuple(tuple(row) for row in current.state.board)
+        Closed.add(current_state_tuple)
+        
+        if current_state_tuple in Open_dict:
+            del Open_dict[current_state_tuple]
+            
+        for action, successor in current.state.successorFunction():
+            # Skip if successor state has a deadlock
+            if is_deadlock(successor):
+                continue
+                
+            child = Node(state=successor, parent=current, action=action)
+            child.setF(h(child.state))
+            
+            child_state_tuple = tuple(tuple(row) for row in child.state.board)
+            
+            if child_state_tuple not in Closed:
+                if child_state_tuple not in Open_dict or child.f < Open_dict[child_state_tuple].f:
+                    heapq.heappush(Open, (child.f, child))
+                    Open_dict[child_state_tuple] = child
+    
+    return None, node_count
 
 
-
-
-# Example usage
 def solve_puzzle(board: List[List[str]]):
     """Solve puzzle using both BFS and A* with different heuristics."""
+    #puzzle = SokobanPuzzle(board)
+
     puzzle = SokobanPuzzle(board)
+    """ solution, nodes = astar_search_with_deadlock(puzzle, h3)
+
+    if solution:
+        print(f"Solution found in {solution.g} steps")
+        print(f"Nodes expanded: {nodes}")
+        print("Actions:", solution.getSolution())
+    else:
+        print(f"No solution found. Nodes expanded: {nodes}") """
     
     print("Solving with BFS...")
-    bfs_solution = bfs_search(puzzle)
+    bfs_solution, bfs_nodes_expanded = bfs_search(puzzle)
     if bfs_solution:
-        print(f"BFS Solution found in {bfs_solution.g} steps")
+        print(f"BFS Solution found in {bfs_solution.g} steps with {bfs_nodes_expanded} nodes expanded")
         print("Actions:", bfs_solution.getSolution())
     else:
         print("No BFS solution found!")
         
     print("\nSolving with A* (h1)...")
-    astar_h1_solution = astar_search(puzzle, h1)
+    astar_h1_solution, astar_h1_nodes_expanded = astar_search(puzzle, h1)
     if astar_h1_solution:
-        print(f"A* (h1) Solution found in {astar_h1_solution.g} steps")
+        print(f"A* (h1) Solution found in {astar_h1_solution.g} steps with {astar_h1_nodes_expanded} nodes expanded")
         print("Actions:", astar_h1_solution.getSolution())
     else:
         print("No A* (h1) solution found!")
         
     print("\nSolving with A* (h2)...")
-    astar_h2_solution = astar_search(puzzle, h2)
+    astar_h2_solution, astar_h2_nodes_expanded = astar_search(puzzle, h2)
     if astar_h2_solution:
-        print(f"A* (h2) Solution found in {astar_h2_solution.g} steps")
+        print(f"A* (h2) Solution found in {astar_h2_solution.g} steps with {astar_h2_nodes_expanded} nodes expanded")
         print("Actions:", astar_h2_solution.getSolution())
     else:
         print("No A* (h2) solution found!")
     
     print("\nSolving with A* (h3)...")
-    astar_h3_solution = astar_search(puzzle, h3)
+    astar_h3_solution, astar_h3_nodes_expanded = astar_search(puzzle, h3)
     if astar_h3_solution:
-        print(f"A* (h3) Solution found in {astar_h3_solution.g} steps")
+        print(f"A* (h3) Solution found in {astar_h3_solution.g} steps with {astar_h3_nodes_expanded} nodes expanded")
         print("Actions:", astar_h3_solution.getSolution())
     else:
         print("No A* (h3) solution found!")
+    solution, nodes = astar_search_with_deadlock(puzzle, h3)
+
+    if solution:
+        print(f"Solution found in {solution.g} steps")
+        print(f"Nodes expanded: {nodes}")
+        print("Actions:", solution.getSolution())
+    else:
+        print(f"No solution found. Nodes expanded: {nodes}")
+    """ solution_node, nodes_expanded = astar_search_with_deadlock(puzzle, h3)
+        
+    if solution_node:
+        print(f"Solution found for Test in {solution_node.g} steps with {nodes_expanded} nodes expanded")
+        print("Solution Actions:", solution_node.getSolution())
+    else:
+        print(f"No solution found for Test. Nodes expanded: {nodes_expanded}") """
 
 initial_board = [
     ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O'],
@@ -324,6 +489,18 @@ initial_board = [
     ['O', 'O', 'O', 'O', ' ', ' ', 'O', 'O', 'O'],
     ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O']
 ]
+""" initial_board = [
+    ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O'],
+    ['O', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'O'],
+    ['O', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'O'],
+    ['O', ' ', ' ', 'O', 'O', 'O', ' ', ' ', 'O'],
+    ['O', ' ', ' ', ' ', ' ', 'O', '.', ' ', 'O'],
+    ['O', ' ', ' ', ' ', ' ', ' ', 'O', ' ', 'O'],
+    ['O', ' ', ' ', 'B', ' ', ' ', 'O', ' ', 'O'],
+    ['O', ' ', ' ', ' ', ' ', ' ', 'O', ' ', 'O'],
+    ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O']
+] """
+
 
 # Solve using all methods
-solve_puzzle(initial_board)
+#solve_puzzle(initial_board)

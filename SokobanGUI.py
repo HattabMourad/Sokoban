@@ -1,8 +1,8 @@
 import pygame
 import time
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
-from Astar import Node, SokobanPuzzle, astar_search, bfs_search, h1, h2, h3
+from Astar import Node, SokobanPuzzle, astar_search, astar_search_with_deadlock, bfs_search, h1, h2, h3, is_deadlock
 
 class SokobanGUI:
     # Colors
@@ -90,6 +90,7 @@ class SokobanGUI:
                 if cell in ['R', '.']:  # Player
                     self.draw_player(x, y)
     
+    # Modified information panel drawing to include nodes expanded
     def draw_info_panel(self, solution_info: Dict):
         info_y = self.board_height
         
@@ -99,10 +100,10 @@ class SokobanGUI:
         
         # Draw solution information
         y_offset = info_y + 10
-        line_height = 30
+        line_height = 25
         
         for algorithm, info in solution_info.items():
-            text = f"{algorithm}: {info['steps']} steps"
+            text = f"{algorithm}: {info['steps']} steps, {info['nodes']} nodes expanded"
             text_surface = self.small_font.render(text, True, self.COLORS['BLACK'])
             self.screen.blit(text_surface, (10, y_offset))
             y_offset += line_height
@@ -112,7 +113,7 @@ class SokobanGUI:
             step_text = f"Step: {self.current_step + 1}/{len(self.solution_path)}"
             step_surface = self.small_font.render(step_text, True, self.COLORS['BLACK'])
             self.screen.blit(step_surface, (10, y_offset))
-    
+
     def simulate_solution(self, initial_board: List[List[str]], solution_path: List[SokobanPuzzle],
                          solution_info: Dict, delay: float = 0.5):
         self.init_display(initial_board)
@@ -148,33 +149,75 @@ class SokobanGUI:
         
         pygame.quit()
 
-def visualize_solution(initial_board: List[List[str]], bfs_solution: Optional[Node] = None,
-                      astar_h1_solution: Optional[Node] = None, astar_h2_solution: Optional[Node] = None,
-                      astar_h3_solution: Optional[Node] = None):
+def visualize_solution(initial_board: List[List[str]], 
+                      bfs_result: Optional[Tuple[Node, int]] = None,
+                      astar_h1_result: Optional[Tuple[Node, int]] = None, 
+                      astar_h2_result: Optional[Tuple[Node, int]] = None,
+                      astar_h3_result: Optional[Tuple[Node, int]] = None,
+                      astar_deadlock_result: Optional[Tuple[Node, int]] = None):
+    
     solution_info = {}
-    if bfs_solution:
-        solution_info['BFS'] = {'steps': bfs_solution.g}
-    if astar_h1_solution:
-        solution_info['A* (h1)'] = {'steps': astar_h1_solution.g}
-    if astar_h2_solution:
-        solution_info['A* (h2)'] = {'steps': astar_h2_solution.g}
-    if astar_h3_solution:
-        solution_info['A* (h3)'] = {'steps': astar_h3_solution.g}
-    
-    solutions = [(s, name) for s, name in [
-        (bfs_solution, 'BFS'),
-        (astar_h1_solution, 'A* (h1)'),
-        (astar_h2_solution, 'A* (h2)'),
-        (astar_h3_solution, 'A* (h3')
-    ] if s is not None]
-    
+
+    # Gather solution information including nodes expanded
+    if bfs_result and bfs_result[0]:
+        solution_info['BFS'] = {
+            'steps': bfs_result[0].g,
+            'actions': bfs_result[0].getSolution(),
+            'nodes': bfs_result[1]
+        }
+    if astar_h1_result and astar_h1_result[0]:
+        solution_info['A* (h1)'] = {
+            'steps': astar_h1_result[0].g,
+            'actions': astar_h1_result[0].getSolution(),
+            'nodes': astar_h1_result[1]
+        }
+    if astar_h2_result and astar_h2_result[0]:
+        solution_info['A* (h2)'] = {
+            'steps': astar_h2_result[0].g,
+            'actions': astar_h2_result[0].getSolution(),
+            'nodes': astar_h2_result[1]
+        }
+    if astar_h3_result and astar_h3_result[0]:
+        solution_info['A* (h3)'] = {
+            'steps': astar_h3_result[0].g,
+            'actions': astar_h3_result[0].getSolution(),
+            'nodes': astar_h3_result[1]
+        }
+    if astar_deadlock_result and astar_deadlock_result[0]:
+        solution_info['A* with Deadlock'] = {
+            'steps': astar_deadlock_result[0].g,
+            'actions': astar_deadlock_result[0].getSolution(),
+            'nodes': astar_deadlock_result[1]
+        }
+
+    # Check for deadlock in initial state
+    initial_puzzle = SokobanPuzzle(initial_board)
+    if is_deadlock(initial_puzzle):
+        print("Initial state contains a deadlock - puzzle is unsolvable!")
+        return
+
+    # Prepare solutions list for comparison
+    solutions = [
+        (bfs_result[0], 'BFS') if bfs_result and bfs_result[0] else None,
+        (astar_h1_result[0], 'A* (h1)') if astar_h1_result and astar_h1_result[0] else None,
+        (astar_h2_result[0], 'A* (h2)') if astar_h2_result and astar_h2_result[0] else None,
+        (astar_h3_result[0], 'A* (h3)') if astar_h3_result and astar_h3_result[0] else None,
+        (astar_deadlock_result[0], 'A* with Deadlock') if astar_deadlock_result and astar_deadlock_result[0] else None
+    ]
+    solutions = [s for s in solutions if s is not None]
+
+    # Check if there are no solutions
     if not solutions:
         print("No solutions to visualize!")
+        if any(result and result[1] > 0 for result in [bfs_result, astar_h1_result, astar_h2_result, astar_h3_result, astar_deadlock_result]):
+            print("Search was performed but no solution was found - puzzle may be unsolvable!")
         return
-    
+
+    # Select the best solution by minimum steps
     best_solution, algorithm = min(solutions, key=lambda x: x[0].g)
     print(f"Visualizing {algorithm} solution with {best_solution.g} steps")
-    
+
+    # Initialize GUI and simulate the solution
     gui = SokobanGUI()
     gui.simulate_solution(
         initial_board,
@@ -184,7 +227,7 @@ def visualize_solution(initial_board: List[List[str]], bfs_solution: Optional[No
 
 # Example usage
 if __name__ == "__main__":
-    test_board = [
+    """ test_board = [
         ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O'],
         ['O', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'O'],
         ['O', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'O'],
@@ -194,12 +237,49 @@ if __name__ == "__main__":
         ['O', ' ', ' ', 'B', ' ', ' ', 'O', ' ', 'O'],
         ['O', ' ', ' ', ' ', ' ', ' ', 'O', ' ', 'O'],
         ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O']
+    ] """
+    test_board = [
+        ['O', 'O', 'O', 'O', 'O', 'O', 'O'],
+        ['O', 'S', ' ', 'O', ' ', 'R', 'O'],
+        ['O', ' ', ' ', 'O', 'B', ' ', 'O'],
+        ['O', 'S', ' ', ' ', 'B', ' ', 'O'],
+        ['O', ' ', ' ', 'O', 'B', ' ', 'O'],
+        ['O', 'S', ' ', 'O', ' ', ' ', 'O'],
+        ['O', 'O', 'O', 'O', 'O', 'O', 'O']
     ]
+    """ test_board = [
+        ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O'],
+        ['O', 'S', 'S', 'S', ' ', 'O', 'O', 'O'],
+        ['O', ' ', 'S', ' ', 'B', ' ', ' ', 'O'],
+        ['O', ' ', ' ', 'B', 'B', 'B', ' ', 'O'],
+        ['O', 'O', 'O', 'O', ' ', ' ', 'R', 'O'],
+        ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O']
+    ] """
+    """ test_board = [
+        ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O'],
+        ['O', 'O', 'O', ' ', ' ', 'O', 'O', 'O', 'O'],
+        ['O', 'O', 'O', ' ', ' ', 'O', 'O', 'O', 'O'],
+        ['O', 'O', 'O', ' ', '*', ' ', ' ', 'O', 'O'],
+        ['O', 'O', 'O', 'B', 'O', 'B', ' ', 'O', 'O'],
+        ['O', 'O', ' ', 'S', 'R', 'S', ' ', 'O', 'O'],
+        ['O', 'O', ' ', ' ', ' ', ' ', 'O', 'O', 'O'],
+        ['O', 'O', 'O', 'O', ' ', ' ', 'O', 'O', 'O'],
+        ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O']
+    ] """
     
     puzzle = SokobanPuzzle(test_board)
     bfs_solution = bfs_search(puzzle)
     astar_h1_solution = astar_search(puzzle, h1)
     astar_h2_solution = astar_search(puzzle, h2)
     astar_h3_solution = astar_search(puzzle, h3)
+    astar_deadlock_solution = astar_search_with_deadlock(puzzle, h3)
     
-    visualize_solution(test_board, bfs_solution, astar_h1_solution, astar_h2_solution, astar_h3_solution)
+    visualize_solution(
+        test_board, 
+        bfs_solution, 
+        astar_h1_solution, 
+        astar_h2_solution, 
+        astar_h3_solution,
+        astar_deadlock_solution
+    )
+    
